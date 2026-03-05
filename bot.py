@@ -102,3 +102,14 @@ def trade():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
+profit = 0
+loss = 0
+start_balance = 0
+
+@app.route("/stats")
+def stats():
+    return {
+        "start_balance": start_balance,
+        "current_profit": profit,
+        "current_loss": loss
+    }
