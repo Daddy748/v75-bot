@@ -110,6 +110,6 @@ start_balance = 0
 def stats():
     return {
         "start_balance": start_balance,
-        "current_profit": profit,
-        "current_loss": loss
+        "profit": profit,
+        "loss": loss
     }
