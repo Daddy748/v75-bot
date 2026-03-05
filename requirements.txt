@@ -1,4 +1,4 @@
 flask
-websocket-client
 requests
+websocket-client
 flask-cors
