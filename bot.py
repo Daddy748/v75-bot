@@ -1,115 +1,130 @@
-from flask import Flask, request, jsonify
 import websocket
 import json
+import requests
+from flask import Flask, request, jsonify
 import os
-from datetime import datetime
 
 app = Flask(__name__)
 
-DERIV_TOKEN = os.environ.get("DERIV_TOKEN")
-STAKE = float(os.environ.get("STAKE", 1))
-DAILY_LOSS_LIMIT = float(os.environ.get("DAILY_LOSS_LIMIT", 10))
-BOT_ACTIVE = os.environ.get("BOT_ACTIVE", "true").lower() == "true"
+DERIV_TOKEN = os.getenv("DERIV_TOKEN")
 
-daily_loss = 0
-today_date = datetime.utcnow().date()
+stake = float(os.getenv("Stake", 0.5))
+daily_target = float(os.getenv("Daily_Target", 10))
+stop_loss = float(os.getenv("Stop_Loss", 2))
 
+start_balance = 0
+current_balance = 0
+profit = 0
+martingale = 1
+bot_status = "OFF"
 
-def reset_daily_loss():
-    global daily_loss, today_date
-    if datetime.utcnow().date() != today_date:
-        daily_loss = 0
-        today_date = datetime.utcnow().date()
+def connect_deriv():
+    ws = websocket.create_connection("wss://ws.derivws.com/websockets/v3")
+    ws.send(json.dumps({
+        "authorize": DERIV_TOKEN
+    }))
+    return ws
 
+def place_trade(direction):
+    global martingale, profit, current_balance
 
-def connect_ws():
-    return websocket.create_connection("wss://ws.derivws.com/websockets/v3?app_id=1089")
+    ws = connect_deriv()
 
-
-def authorize(ws):
-    ws.send(json.dumps({"authorize": DERIV_TOKEN}))
-    return json.loads(ws.recv())
-
-
-def get_balance(ws):
-    ws.send(json.dumps({"balance": 1}))
-    return json.loads(ws.recv())
-
-
-def place_trade():
-    global daily_loss
-
-    reset_daily_loss()
-
-    if not BOT_ACTIVE:
-        return {"status": "Bot is OFF"}
-
-    if daily_loss >= DAILY_LOSS_LIMIT:
-        return {"status": "Daily loss limit reached"}
-
-    ws = connect_ws()
-    authorize(ws)
-
-    balance_data = get_balance(ws)
-    balance = balance_data["balance"]["balance"]
-
-    if balance < STAKE:
-        ws.close()
-        return {"status": "Insufficient balance"}
+    stake_amount = stake * martingale
 
     proposal = {
         "proposal": 1,
-        "amount": STAKE,
+        "amount": stake_amount,
         "basis": "stake",
-        "contract_type": "CALL",
+        "contract_type": "CALL" if direction == "BUY" else "PUT",
         "currency": "USD",
-        "duration": 1,
-        "duration_unit": "m",
+        "duration": 5,
+        "duration_unit": "t",
         "symbol": "R_75"
     }
 
     ws.send(json.dumps(proposal))
-    proposal_response = json.loads(ws.recv())
+    result = json.loads(ws.recv())
 
-    if "error" in proposal_response:
-        ws.close()
-        return {"status": proposal_response["error"]["message"]}
+    proposal_id = result["proposal"]["id"]
 
-    buy_request = {
-        "buy": proposal_response["proposal"]["id"],
-        "price": STAKE
+    buy = {
+        "buy": proposal_id,
+        "price": stake_amount
     }
 
-    ws.send(json.dumps(buy_request))
-    buy_response = json.loads(ws.recv())
+    ws.send(json.dumps(buy))
+    trade = json.loads(ws.recv())
 
-    ws.close()
+    return trade
 
-    return {"status": "Trade Placed", "details": buy_response}
-
-
-@app.route('/')
+@app.route("/")
 def home():
-    return "V75 REAL Bot Ready"
+    return "V75 BOT RUNNING"
 
+@app.route("/start")
+def start():
+    global bot_status
+    bot_status = "ON"
+    return jsonify({"status": "Bot Started"})
 
-@app.route('/trade', methods=['POST'])
-def trade():
-    result = place_trade()
-    return jsonify(result)
+@app.route("/stop")
+def stop():
+    global bot_status
+    bot_status = "OFF"
+    return jsonify({"status": "Bot Stopped"})
 
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    global profit, martingale, bot_status
 
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
-profit = 0
-loss = 0
-start_balance = 0
+    if bot_status != "ON":
+        return jsonify({"status": "Bot OFF"})
+
+    data = request.json
+    signal = data.get("signal")
+
+    trade = place_trade(signal)
+
+    if "error" in trade:
+        return jsonify(trade)
+
+    buy_price = trade["buy"]["buy_price"]
+    payout = trade["buy"]["payout"]
+
+    result_profit = payout - buy_price
+
+    profit += result_profit
+
+    if result_profit < 0:
+        martingale *= 2
+    else:
+        martingale = 1
+
+    if profit >= daily_target:
+        bot_status = "OFF"
+
+    if profit <= -stop_loss:
+        bot_status = "OFF"
+
+    return jsonify({
+        "trade": trade,
+        "profit": profit,
+        "martingale": martingale,
+        "bot_status": bot_status
+    })
 
 @app.route("/stats")
 def stats():
-    return {
-        "start_balance": start_balance,
+    return jsonify({
+        "bot_status": bot_status,
+        "stake": stake,
         "profit": profit,
-        "loss": loss
-    }
+        "martingale": martingale,
+        "daily_target": daily_target,
+        "stop_loss": stop_loss
+    })
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
