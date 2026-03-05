@@ -23,10 +23,9 @@ bot_status = "OFF"
 
 # --- Connect to Deriv ---
 def connect_deriv():
-    ws = websocket.create_connection("wss://ws.derivws.com/websockets/v3")
+    ws = websocket.create_connection("wss://ws.derivws.com/websockets/v3?app_id=1089")
     ws.send(json.dumps({"authorize": DERIV_TOKEN}))
     return ws
-
 def place_trade(direction):
     global martingale, profit, current_balance
     ws = connect_deriv()
