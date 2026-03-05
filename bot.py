@@ -74,18 +74,28 @@ def webhook():
     if bot_status != "ON":
         return jsonify({"status": "Bot OFF"})
 
-    data = request.json
+    data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "No JSON received"})
+
     signal = data.get("signal")
 
-    trade = place_trade(signal)
+    if signal not in ["BUY", "SELL"]:
+        return jsonify({"error": "Invalid signal"})
+
+    try:
+        trade = place_trade(signal)
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
     if "error" in trade:
         return jsonify(trade)
 
     buy_price = trade["buy"]["buy_price"]
     payout = trade["buy"]["payout"]
-    result_profit = payout - buy_price
 
+    result_profit = payout - buy_price
     profit += result_profit
 
     if result_profit < 0:
@@ -93,11 +103,14 @@ def webhook():
     else:
         martingale = 1
 
-    if profit >= daily_target or profit <= -stop_loss:
+    if profit >= daily_target:
+        bot_status = "OFF"
+
+    if profit <= -stop_loss:
         bot_status = "OFF"
 
     return jsonify({
-        "trade": trade,
+        "status": "Trade Executed",
         "profit": profit,
         "martingale": martingale,
         "bot_status": bot_status
