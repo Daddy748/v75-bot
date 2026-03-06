@@ -1,79 +1,96 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS  # ✅ Import CORS
-import os
-import json
+from flask_cors import CORS
 import websocket
-import requests
+import json
 
 app = Flask(__name__)
-CORS(app)  # ✅ Enable CORS for all routes
+CORS(app)
 
-# --- Environment variables ---
-DERIV_TOKEN = os.getenv("DERIV_TOKEN")
-stake = float(os.getenv("Stake", 0.5))
-daily_target = float(os.getenv("Daily_Target", 10))
-stop_loss = float(os.getenv("Stop_Loss", 2))
+# ==============================
+# DERIV SETTINGS
+# ==============================
 
-# --- Bot variables ---
-start_balance = 0
-current_balance = 0
-profit = 0
-martingale = 1
-bot_status = "OFF"
+DERIV_TOKEN = 1L3t3j9lt4c58e4
+APP_ID = "1089"
+SYMBOL = "R_75"
+STAKE = 1
 
-# --- Connect to Deriv ---
+# ==============================
+# CONNECT TO DERIV
+# ==============================
+
 def connect_deriv():
-    ws = websocket.create_connection("wss://ws.derivws.com/websockets/v3?app_id=1089")
-    ws.send(json.dumps({"authorize": DERIV_TOKEN}))
+    ws = websocket.create_connection(f"wss://ws.derivws.com/websockets/v3?app_id={APP_ID}")
+
+    auth = {
+        "authorize": DERIV_TOKEN
+    }
+
+    ws.send(json.dumps(auth))
+    response = json.loads(ws.recv())
+
+    if "error" in response:
+        raise Exception(response["error"]["message"])
+
     return ws
-def place_trade(direction):
-    global martingale, profit, current_balance
+
+
+# ==============================
+# PLACE TRADE FUNCTION
+# ==============================
+
+def place_trade(signal):
+
     ws = connect_deriv()
-    stake_amount = stake * martingale
+
+    contract_type = "CALL" if signal == "BUY" else "PUT"
+
     proposal = {
         "proposal": 1,
-        "amount": stake_amount,
+        "amount": STAKE,
         "basis": "stake",
-        "contract_type": "CALL" if direction == "BUY" else "PUT",
+        "contract_type": contract_type,
         "currency": "USD",
         "duration": 5,
         "duration_unit": "t",
-        "symbol": "R_75"
+        "symbol": SYMBOL
     }
+
     ws.send(json.dumps(proposal))
-    result = json.loads(ws.recv())
-    proposal_id = result["proposal"]["id"]
-    buy = {"buy": proposal_id, "price": stake_amount}
+
+    response = json.loads(ws.recv())
+
+    # Check for errors
+    if "error" in response:
+        return {"error": response["error"]["message"]}
+
+    if "proposal" not in response:
+        return {"error": "No proposal received"}
+
+    proposal_id = response["proposal"]["id"]
+
+    buy = {
+        "buy": proposal_id,
+        "price": STAKE
+    }
+
     ws.send(json.dumps(buy))
-    trade = json.loads(ws.recv())
-    return trade
 
-# --- Flask routes ---
-@app.route("/")
-def home():
-    return "V75 BOT RUNNING"
+    result = json.loads(ws.recv())
 
-@app.route("/start")
-def start():
-    global bot_status
-    bot_status = "ON"
-    return jsonify({"status": "Bot Started"})
+    ws.close()
 
-@app.route("/stop")
-def stop():
-    global bot_status
-    bot_status = "OFF"
-    return jsonify({"status": "Bot Stopped"})
+    return result
 
-# ✅ THIS IS WHERE YOU PASTE IT
+
+# ==============================
+# WEBHOOK FOR TRADINGVIEW
+# ==============================
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    global profit, martingale, bot_status
 
-    if bot_status != "ON":
-        return jsonify({"status": "Bot OFF"})
-
-    data = request.get_json()
+    data = request.json
 
     if not data:
         return jsonify({"error": "No JSON received"})
@@ -83,50 +100,23 @@ def webhook():
     if signal not in ["BUY", "SELL"]:
         return jsonify({"error": "Invalid signal"})
 
-    try:
-        trade = place_trade(signal)
-    except Exception as e:
-        return jsonify({"error": str(e)})
+    result = place_trade(signal)
 
-    if "error" in trade:
-        return jsonify(trade)
+    return jsonify(result)
 
-    buy_price = trade["buy"]["buy_price"]
-    payout = trade["buy"]["payout"]
 
-    result_profit = payout - buy_price
-    profit += result_profit
+# ==============================
+# BOT STATUS
+# ==============================
 
-    if result_profit < 0:
-        martingale *= 2
-    else:
-        martingale = 1
+@app.route("/")
+def home():
+    return jsonify({"status": "Bot ON"})
 
-    if profit >= daily_target:
-        bot_status = "OFF"
 
-    if profit <= -stop_loss:
-        bot_status = "OFF"
+# ==============================
+# RUN SERVER
+# ==============================
 
-    return jsonify({
-        "status": "Trade Executed",
-        "profit": profit,
-        "martingale": martingale,
-        "bot_status": bot_status
-    })
-
-@app.route("/stats")
-def stats():
-    return jsonify({
-        "bot_status": bot_status,
-        "stake": stake,
-        "profit": profit,
-        "martingale": martingale,
-        "daily_target": daily_target,
-        "stop_loss": stop_loss
-    })
-
-# --- Run Flask app ---
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=5000)
