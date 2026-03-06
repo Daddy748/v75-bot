@@ -7,7 +7,7 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# ===== ENV VARIABLES =====
+# ENV VARIABLES
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
 APP_ID = os.getenv("APP_ID", "1089")
 
@@ -15,13 +15,14 @@ STAKE = float(os.getenv("STAKE", 1))
 DAILY_TARGET = float(os.getenv("Daily_Target", 10))
 DAILY_LOSS_LIMIT = float(os.getenv("DAILY_LOSS_LIMIT", 2))
 
-# ===== BOT VARIABLES =====
 bot_status = "OFF"
 profit = 0
 martingale = 1
 
-# ===== CONNECT TO DERIV =====
+
+# CONNECT TO DERIV
 def connect_deriv():
+
     ws = websocket.create_connection(
         f"wss://ws.derivws.com/websockets/v3?app_id={APP_ID}"
     )
@@ -38,7 +39,7 @@ def connect_deriv():
     return ws
 
 
-# ===== PLACE TRADE =====
+# PLACE TRADE
 def place_trade(signal):
 
     ws = connect_deriv()
@@ -80,8 +81,7 @@ def place_trade(signal):
     return result
 
 
-# ===== ROUTES =====
-
+# ROUTES
 @app.route("/")
 def home():
     return {"status": "Bot running"}
@@ -136,8 +136,7 @@ def webhook():
     return result
 
 
-# ===== RUN SERVER =====
-
+# RUN SERVER
 if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 8080))
