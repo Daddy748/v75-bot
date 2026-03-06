@@ -10,7 +10,7 @@ CORS(app)
 # DERIV SETTINGS
 # ==============================
 
-DERIV_TOKEN = 1L3t3j9lt4c58e4
+DERIV_TOKEN = "l13t3j9l14c5e84"
 APP_ID = "1089"
 SYMBOL = "R_75"
 STAKE = 1
